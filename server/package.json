@@ -1,0 +1,28 @@
+{
+  "name": "agentrag",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "flow:langchain": "node src/flows/langchain/index.ts",
+    "flow:raw": "node src/flows/raw/index.ts",
+    "flow:mastra": "node src/flows/mastra/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/core": "^1.2.14",
+    "@langchain/openai": "^1.6.2",
+    "@mastra/core": "^1.74.0",
+    "dotenv": "^18.0.5",
+    "fastify": "^5.12.5",
+    "langchain": "^1.5.15",
+    "socket.io": "^4.8.4",
+    "zod": "^4.6.5"
+  }
+}
