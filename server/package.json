@@ -10,15 +10,18 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "flow:langchain": "node src/flows/langchain/index.ts",
     "flow:raw": "node src/flows/raw/index.ts",
+    "flow:aisdk": "node src/flows/raw/aisdk.ts",
     "flow:mastra": "node src/flows/mastra/index.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.83",
     "@langchain/core": "^1.2.14",
     "@langchain/openai": "^1.6.2",
     "@mastra/core": "^1.74.0",
+    "ai": "^7.0.127",
     "dotenv": "^18.0.5",
     "fastify": "^5.12.5",
     "langchain": "^1.5.15",

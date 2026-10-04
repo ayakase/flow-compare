@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import dotenv from "dotenv";
 import { langchainRoutes } from "./flows/langchain/index.ts";
 import { rawRoutes } from "./flows/raw/index.ts";
+import { aisdkRoutes } from "./flows/raw/aisdk.ts";
 import { mastraRoutes } from "./flows/mastra/index.ts";
 import { initSocketIO } from "./socket.ts";
 
@@ -24,23 +25,46 @@ fastify.addHook("onRequest", async (request, reply) => {
 // Initialize Socket.io on Fastify's raw HTTP server
 initSocketIO(fastify.server);
 
+import { getToolsOverview } from "./tools.ts";
+
 // Root endpoint: API Overview
 fastify.get("/", async () => {
   return {
     status: "ok",
     message: "AgentRAG Fastify Server with Socket.IO",
     endpoints: {
+      tools: "GET /tools",
       langchain: "GET or POST /langchain?q=...&sessionId=...",
       raw: "GET or POST /raw?q=...&sessionId=...",
+      "raw-aisdk": "GET or POST /raw-aisdk?q=...&sessionId=...",
       mastra: "GET or POST /mastra?q=...&sessionId=...",
     },
     example: "/langchain?q=Shop có bán giày Nike Air Max không?",
   };
 });
 
-// Register routes from the 3 flows
+// GET /tools - Get all available tools, their parameters and outputs
+fastify.get("/tools", async () => {
+  return {
+    tools: getToolsOverview(),
+  };
+});
+
+// GET /tools/:name - Get a single tool details
+fastify.get("/tools/:name", async (request, reply) => {
+  const { name } = request.params as { name: string };
+  const allTools = getToolsOverview();
+  const tool = allTools.find((t) => t.name === name);
+  if (!tool) {
+    return reply.status(404).send({ error: `Tool ${name} not found` });
+  }
+  return tool;
+});
+
+// Register routes from the flows
 fastify.register(langchainRoutes);
 fastify.register(rawRoutes);
+fastify.register(aisdkRoutes);
 fastify.register(mastraRoutes);
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -54,6 +78,7 @@ async function start() {
     console.log(`Available flow routes:`);
     console.log(`  - GET/POST http://localhost:${PORT}/langchain?q=...`);
     console.log(`  - GET/POST http://localhost:${PORT}/raw?q=...`);
+    console.log(`  - GET/POST http://localhost:${PORT}/raw-aisdk?q=...`);
     console.log(`  - GET/POST http://localhost:${PORT}/mastra?q=...\n`);
   } catch (err) {
     console.error("Error starting Fastify server:", err);

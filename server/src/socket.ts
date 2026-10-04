@@ -2,7 +2,7 @@ import { Server as SocketIOServer } from "socket.io";
 import type { Server as HttpServer } from "node:http";
 
 export interface FlowLogEvent {
-  flow: "langchain" | "raw" | "mastra";
+  flow: "langchain" | "raw" | "raw-aisdk" | "aisdk" | "mastra" | (string & {});
   type: "info" | "llm" | "tool_call" | "tool_result" | "final" | "error";
   message: string;
   data?: any;

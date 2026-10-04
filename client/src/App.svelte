@@ -14,11 +14,11 @@
   let socket = $state(null)
   let socketConnected = $state(false)
   let socketId = $state(null)
-
   // Active view tab per card: 'answer' | 'logs'
   let cardTabs = $state({
     langchain: 'answer',
     raw: 'answer',
+    'raw-aisdk': 'answer',
     mastra: 'answer',
   })
 
@@ -26,25 +26,29 @@
   let flowLogs = $state({
     langchain: [],
     raw: [],
+    'raw-aisdk': [],
     mastra: [],
   })
 
   let results = $state({
     langchain: { loading: false, answer: null, error: null, duration: null },
     raw: { loading: false, answer: null, error: null, duration: null },
+    'raw-aisdk': { loading: false, answer: null, error: null, duration: null },
     mastra: { loading: false, answer: null, error: null, duration: null },
   })
 
   let copied = $state({
     langchain: false,
     raw: false,
+    'raw-aisdk': false,
     mastra: false,
   })
 
   const modes = [
-    { id: 'all', label: 'Call cả 3 (So sánh)', icon: '⚡', desc: 'Chạy song song 3 framework' },
+    { id: 'all', label: 'Call cả 4 (So sánh)', icon: '⚡', desc: 'Chạy song song 4 flow' },
     { id: 'langchain', label: 'LangChain', icon: '🦜', desc: 'LangChain createAgent' },
-    { id: 'raw', label: 'Raw (OpenAI)', icon: '⚙️', desc: 'Native OpenRouter / Tools' },
+    { id: 'raw', label: 'Raw (Loop)', icon: '⚙️', desc: 'Tự code vòng lặp while' },
+    { id: 'raw-aisdk', label: 'Raw (AI SDK)', icon: '🤖', desc: 'Vercel AI SDK (maxSteps)' },
     { id: 'mastra', label: 'Mastra', icon: '🦊', desc: 'Mastra Agent Core' },
   ]
 
@@ -99,8 +103,59 @@
     }
   }
 
+  // Tools catalog state
+  let tools = $state([])
+  let toolsLoading = $state(true)
+  let toolsError = $state(null)
+  let toolSearch = $state('')
+  let isSidebarOpen = $state(true)
+  let copiedOutputs = $state({})
+  let copiedToolNames = $state({})
+
+  async function fetchTools() {
+    toolsLoading = true
+    toolsError = null
+    try {
+      const response = await axios.get(`${apiBase}/tools`, { timeout: 10000 })
+      tools = response.data?.tools || []
+    } catch (err) {
+      toolsError =
+        err.response?.data?.error || err.message || 'Không thể lấy danh sách tools từ server'
+    } finally {
+      toolsLoading = false
+    }
+  }
+
+  function copyToolName(name) {
+    navigator.clipboard.writeText(name)
+    copiedToolNames[name] = true
+    setTimeout(() => {
+      copiedToolNames[name] = false
+    }, 2000)
+  }
+
+  function copyToolOutput(name, output) {
+    navigator.clipboard.writeText(JSON.stringify(output, null, 2))
+    copiedOutputs[name] = true
+    setTimeout(() => {
+      copiedOutputs[name] = false
+    }, 2000)
+  }
+
+  const filteredTools = $derived(
+    tools.filter((t) => {
+      if (!toolSearch.trim()) return true
+      const q = toolSearch.toLowerCase()
+      return (
+        t.name.toLowerCase().includes(q) ||
+        (t.description && t.description.toLowerCase().includes(q))
+      )
+    })
+  )
+
   onMount(() => {
     connectSocket(apiBase)
+    fetchTools()
     return () => {
       if (socket) socket.disconnect()
     }
@@ -154,6 +209,7 @@
       await Promise.allSettled([
         fetchFlow('langchain', trimmed),
         fetchFlow('raw', trimmed),
+        fetchFlow('raw-aisdk', trimmed),
         fetchFlow('mastra', trimmed),
       ])
     } else {
@@ -179,39 +235,212 @@
     }, 2000)
   }
 
+  function formatLogData(data) {
+    if (data === null || data === undefined) return ''
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data)
+        return JSON.stringify(parsed, null, 2)
+      } catch {
+        return data
+      }
+    }
+    return JSON.stringify(data, null, 2)
+  }
+
   const activeCards = $derived(
     selectedMode === 'all'
-      ? ['langchain', 'raw', 'mastra']
+      ? ['langchain', 'raw', 'raw-aisdk', 'mastra']
       : [selectedMode]
   )
 </script>
 
-<div class="container">
-  <!-- HEADER -->
-  <header class="header">
-    <div class="header-content">
-      <div class="title-row">
-        <h1>Agent RAG Playground</h1>
-        <span class="socket-pill {socketConnected ? 'connected' : 'disconnected'}">
-          <span class="socket-dot"></span>
-          {socketConnected ? 'Socket.io Live' : 'Socket Offline'}
-        </span>
+<div class="app-layout">
+  <!-- TOOLS SIDEBAR (LEFT) -->
+  <aside class="sidebar {isSidebarOpen ? 'open' : 'collapsed'}">
+    {#if isSidebarOpen}
+      <div class="sidebar-header">
+        <div class="sidebar-title-row">
+          <div class="sidebar-title">
+            <span class="sidebar-icon">🛠️</span>
+            <div>
+              <h2>Tools & Outputs</h2>
+              <span class="sidebar-sub-mini">Danh sách tool & mock data ({tools.length})</span>
+            </div>
+          </div>
+          <div class="sidebar-header-btns">
+            <button
+              type="button"
+              class="icon-btn"
+              onclick={fetchTools}
+              title="Tải lại danh sách tools"
+            >
+              🔄
+            </button>
+            <button
+              type="button"
+              class="icon-btn collapse-toggle"
+              onclick={() => (isSidebarOpen = false)}
+              title="Thu gọn sidebar"
+            >
+              ◀
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar-search-row">
+          <input
+            type="text"
+            class="sidebar-search-input"
+            bind:value={toolSearch}
+            placeholder="Tìm tool hoặc tham số..."
+          />
+          {#if toolSearch}
+            <button
+              type="button"
+              class="sidebar-search-clear"
+              onclick={() => (toolSearch = '')}
+            >
+              ✕
+            </button>
+          {/if}
+        </div>
       </div>
-      <p class="subtitle">
-        So sánh kết quả thực thi và Stream live progress của 3 framework: <strong>LangChain</strong>, <strong>Raw (OpenAI)</strong>, và <strong>Mastra</strong>
-      </p>
-    </div>
-    <div class="server-config">
-      <label for="server-url">Server:</label>
-      <input
-        id="server-url"
-        type="text"
-        bind:value={apiBase}
-        onchange={() => connectSocket(apiBase)}
-        placeholder="http://localhost:3000"
-      />
-    </div>
-  </header>
+
+      <div class="sidebar-body">
+        {#if toolsLoading}
+          <div class="sidebar-loading">
+            <span class="spinner-small"></span> Đang tải tools từ server...
+          </div>
+        {:else if toolsError}
+          <div class="sidebar-error-box">
+            <p><strong>Lỗi:</strong> {toolsError}</p>
+            <button type="button" class="retry-btn" onclick={fetchTools}>
+              Thử lại
+            </button>
+          </div>
+        {:else if filteredTools.length === 0}
+          <div class="sidebar-empty">
+            {toolSearch ? `Không tìm thấy tool nào khớp "${toolSearch}"` : 'Không có tool nào.'}
+          </div>
+        {:else}
+          <div class="tool-cards-list">
+            {#each filteredTools as tool}
+              <div class="tool-card">
+                <div class="tool-card-top">
+                  <span class="tool-card-name">{tool.name}</span>
+                  <button
+                    type="button"
+                    class="tool-copy-name-btn"
+                    onclick={() => copyToolName(tool.name)}
+                    title="Copy tên tool"
+                  >
+                    {copiedToolNames[tool.name] ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                <p class="tool-card-desc">{tool.description}</p>
+
+                {#if tool.parameters && tool.parameters.length > 0}
+                  <div class="tool-section">
+                    <span class="tool-section-title">📥 Parameters ({tool.parameters.length}):</span>
+                    <div class="params-box">
+                      {#each tool.parameters as p}
+                        <div class="param-row">
+                          <div class="param-head">
+                            <span class="param-field">{p.name}</span>
+                            <span class="param-type-badge">{p.type}</span>
+                            <span class="param-req-badge {p.required ? 'req' : 'opt'}">
+                              {p.required ? 'required' : 'optional'}
+                            </span>
+                          </div>
+                          {#if p.description}
+                            <span class="param-desc-text">{p.description}</span>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+
+                <div class="tool-section">
+                  <div class="tool-section-head">
+                    <span class="tool-section-title">📤 Mock Output:</span>
+                    <button
+                      type="button"
+                      class="tool-copy-output-btn"
+                      onclick={() => copyToolOutput(tool.name, tool.output)}
+                      title="Copy output JSON"
+                    >
+                      {copiedOutputs[tool.name] ? '✓ Copied Output' : 'Copy Output'}
+                    </button>
+                  </div>
+                  <pre class="tool-output-block"><code>{JSON.stringify(tool.output, null, 2)}</code></pre>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <!-- COLLAPSED STRIP -->
+      <div class="collapsed-sidebar">
+        <button
+          type="button"
+          class="sidebar-expand-action"
+          onclick={() => (isSidebarOpen = true)}
+          title="Mở Sidebar Tools"
+        >
+          <span class="expand-arrow">▶</span>
+          <span class="collapsed-title">🛠️ Tools ({tools.length})</span>
+        </button>
+      </div>
+    {/if}
+  </aside>
+
+  <!-- MAIN PLAYGROUND -->
+  <main class="main-content">
+    <div class="container">
+      <!-- HEADER -->
+      <header class="header">
+        <div class="header-left">
+          {#if !isSidebarOpen}
+            <button
+              type="button"
+              class="open-sidebar-pill"
+              onclick={() => (isSidebarOpen = true)}
+              title="Mở Sidebar Tools"
+            >
+              🛠️ Tools ({tools.length})
+            </button>
+          {/if}
+          <div class="header-content">
+            <div class="title-row">
+              <h1>Agent RAG Playground</h1>
+              <span class="socket-pill {socketConnected ? 'connected' : 'disconnected'}">
+                <span class="socket-dot"></span>
+                {socketConnected ? 'Socket.io Live' : 'Socket Offline'}
+              </span>
+            </div>
+            <p class="subtitle">
+              So sánh kết quả thực thi và Stream live progress của 3 framework: <strong>LangChain</strong>, <strong>Raw (OpenAI)</strong>, và <strong>Mastra</strong>
+            </p>
+          </div>
+        </div>
+        <div class="server-config">
+          <label for="server-url">Server:</label>
+          <input
+            id="server-url"
+            type="text"
+            bind:value={apiBase}
+            onchange={() => {
+              connectSocket(apiBase)
+              fetchTools()
+            }}
+            placeholder="http://localhost:3000"
+          />
+        </div>
+      </header>
 
   <!-- FORM SECTION -->
   <section class="card form-section">
@@ -279,7 +508,7 @@
         {#if isSubmitting}
           <span class="spinner"></span> Đang chạy & stream logs...
         {:else if selectedMode === 'all'}
-          ⚡ Gửi đến cả 3 Framework
+          ⚡ Gửi đến cả 4 Flow
         {:else}
           🚀 Gửi đến {selectedMode.toUpperCase()}
         {/if}
@@ -289,15 +518,16 @@
 
   <!-- RESULTS SECTION -->
   <section class="results-section">
-    <div class="results-grid {selectedMode === 'all' ? 'three-columns' : 'single-column'}">
+    <div class="results-grid {selectedMode === 'all' ? 'multi-columns' : 'single-column'}">
       {#each activeCards as flowKey}
         {@const card = results[flowKey]}
         {@const logs = flowLogs[flowKey] || []}
         {@const isRaw = flowKey === 'raw'}
+        {@const isAiSdk = flowKey === 'raw-aisdk'}
         {@const isLang = flowKey === 'langchain'}
         {@const isMastra = flowKey === 'mastra'}
-        {@const flowTitle = isLang ? 'LangChain' : isRaw ? 'Raw OpenAI' : 'Mastra'}
-        {@const icon = isLang ? '🦜' : isRaw ? '⚙️' : '🦊'}
+        {@const flowTitle = isLang ? 'LangChain' : isRaw ? 'Raw (Loop)' : isAiSdk ? 'Raw (AI SDK)' : 'Mastra'}
+        {@const icon = isLang ? '🦜' : isRaw ? '⚙️' : isAiSdk ? '🤖' : '🦊'}
 
         <div class="card result-card {card.loading ? 'loading' : ''}">
           <!-- CARD HEADER -->
@@ -404,7 +634,7 @@
                         <div class="log-content">
                           <span class="log-msg">{logItem.message}</span>
                           {#if logItem.data}
-                            <pre class="log-data">{JSON.stringify(logItem.data, null, 2)}</pre>
+                            <pre class="log-data">{formatLogData(logItem.data)}</pre>
                           {/if}
                         </div>
                       </div>
@@ -419,8 +649,435 @@
     </div>
   </section>
 </div>
+</main>
+</div>
 
 <style>
+  /* LAYOUT */
+  .app-layout {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+    min-width: 0;
+    position: relative;
+    background-color: var(--bg-primary);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background-color: #0b0f19;
+    border-right: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 30;
+    transition: width 0.2s ease;
+  }
+
+  .sidebar.open {
+    width: 380px;
+    min-width: 340px;
+    max-width: 400px;
+  }
+
+  .sidebar.collapsed {
+    width: 44px;
+    min-width: 44px;
+    background-color: #090d16;
+  }
+
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background-color: #0d121f;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .sidebar-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sidebar-title h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  .sidebar-sub-mini {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .sidebar-icon {
+    font-size: 18px;
+  }
+
+  .sidebar-header-btns {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+
+  .icon-btn:hover {
+    color: #fff;
+    border-color: var(--accent);
+    background-color: var(--accent-light);
+  }
+
+  .sidebar-search-row {
+    position: relative;
+    width: 100%;
+  }
+
+  .sidebar-search-input {
+    width: 100%;
+    padding: 6px 28px 6px 10px;
+    font-size: 12px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+  }
+
+  .sidebar-search-input:focus {
+    border-color: var(--accent);
+  }
+
+  .sidebar-search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 2px 4px;
+  }
+
+  .sidebar-search-clear:hover {
+    color: #fff;
+  }
+
+  .sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .sidebar-loading, .sidebar-empty {
+    text-align: center;
+    padding: 24px 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .sidebar-error-box {
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .retry-btn {
+    align-self: flex-start;
+    font-size: 11px;
+    background: var(--bg-input);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+
+  .tool-cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .tool-card {
+    background-color: #131b2e;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tool-card:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+  }
+
+  .tool-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .tool-card-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    word-break: break-all;
+  }
+
+  .tool-copy-name-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+
+  .tool-copy-name-btn:hover {
+    color: #fff;
+    border-color: var(--text-secondary);
+  }
+
+  .tool-card-desc {
+    font-size: 12px;
+    color: #cbd5e1;
+    line-height: 1.45;
+  }
+
+  .tool-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tool-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .tool-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+  }
+
+  .tool-copy-output-btn {
+    font-size: 10px;
+    padding: 2px 6px;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border);
+    color: #34d399;
+    border-radius: 4px;
+  }
+
+  .tool-copy-output-btn:hover {
+    background-color: rgba(16, 185, 129, 0.15);
+    border-color: #34d399;
+  }
+
+  .params-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background-color: #0b0f19;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+
+  .param-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    padding-bottom: 4px;
+  }
+
+  .param-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .param-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .param-field {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+
+  .param-type-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  .param-req-badge {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  .param-req-badge.req {
+    background-color: rgba(244, 63, 94, 0.15);
+    color: #fb7185;
+  }
+
+  .param-req-badge.opt {
+    background-color: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+  }
+
+  .param-desc-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.35;
+  }
+
+  .tool-output-block {
+    background-color: #050811;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.45;
+    color: #a5f3fc;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .collapsed-sidebar {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 16px;
+  }
+
+  .sidebar-expand-action {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px;
+    width: 100%;
+  }
+
+  .sidebar-expand-action:hover {
+    color: #fff;
+  }
+
+  .expand-arrow {
+    font-size: 14px;
+    color: #38bdf8;
+  }
+
+  .collapsed-title {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  /* MAIN PLAYGROUND WRAPPER */
+  .main-content {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    padding: 24px 32px 48px;
+    box-sizing: border-box;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .open-sidebar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    background-color: var(--accent-light);
+    color: #818cf8;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+  }
+
+  .open-sidebar-pill:hover {
+    background-color: var(--accent);
+    color: #fff;
+  }
+
   .container {
     display: flex;
     flex-direction: column;
@@ -737,6 +1394,10 @@
     min-width: 0;
   }
 
+  .results-grid.multi-columns {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .results-grid.three-columns {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -745,7 +1406,14 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  @media (max-width: 1400px) {
+    .results-grid.multi-columns {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 1050px) {
+    .results-grid.multi-columns,
     .results-grid.three-columns {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -1147,5 +1815,30 @@
     min-width: 0;
     width: 100%;
     box-sizing: border-box;
+  }
+
+  @media (max-width: 960px) {
+    .app-layout {
+      flex-direction: column;
+    }
+
+    .sidebar {
+      position: static;
+      height: auto;
+      max-height: 500px;
+    }
+
+    .sidebar.open {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .sidebar.collapsed {
+      display: none;
+    }
+
+    .main-content {
+      padding: 16px;
+    }
   }
 </style>

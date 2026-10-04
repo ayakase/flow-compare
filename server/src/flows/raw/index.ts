@@ -76,6 +76,8 @@ IMPORTANT RULES:
     the final answer to the user.
 
 12. Do not mention internal tool names to the user.
+
+13. Please explain the reasoning before deciding to call any tool.
 `;
 
 // ============================================================
@@ -125,7 +127,7 @@ export async function runRaw(
   emit?: LogEmitter,
 ): Promise<string> {
   const query = userMessage.trim() || defaultMessage;
-  console.log(`\nUser Question: ${query}\n`);
+  // console.log(`\nUser Question: ${query}\n`);
   emit?.({ flow: "raw", type: "info", message: `Bắt đầu xử lý: "${query}"` });
 
   const ragContext = `
@@ -158,7 +160,25 @@ ${ragContext}
   let step = 1;
 
   while (step <= maxSteps) {
-    console.log(`LLM REQUEST #${step}`);
+    console.log(
+      `\n📦 [Step #${step}] Mảng messages chuẩn bị gửi cho LLM (${messages.length} items):`,
+    );
+    console.table(
+      messages.map((m, idx) => ({
+        index: idx,
+        role: m.role,
+        content:
+          m.role === "system"
+            ? "(System Prompt & Tool Rules)"
+            : m.role === "assistant" && m.tool_calls
+              ? `${m.content ? `"${m.content}" ` : ""}[Gọi tool: ${m.tool_calls.map((t: any) => t.function?.name).join(", ")}]`
+              : typeof m.content === "string"
+                ? m.content.replace(/\s+/g, " ").trim().slice(0, 65) +
+                  (m.content.length > 65 ? "..." : "")
+                : m.content,
+      })),
+    );
+
     emit?.({
       flow: "raw",
       type: "llm",
@@ -167,22 +187,25 @@ ${ragContext}
 
     const response = await callOpenRouter(messages);
     const assistantMessage = response?.choices?.[0]?.message;
-
     if (!assistantMessage) {
       const errMsg = "OpenRouter returned no assistant message";
       emit?.({ flow: "raw", type: "error", message: errMsg });
       throw new Error(errMsg);
     }
 
-    console.log(`LLM RESPONSE #${step}`);
-    console.dir(assistantMessage, { depth: null });
+    // console.log(`LLM RESPONSE #${step}`);
+    // const { reasoning_details, ...cleanAssistantMessage } = assistantMessage;
+    // console.dir(cleanAssistantMessage, { depth: null });
 
     // Khi model không gọi thêm tool nào -> đã có câu trả lời cuối cùng
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
+    if (
+      !assistantMessage.tool_calls ||
+      assistantMessage.tool_calls.length === 0
+    ) {
       const finalAnswer =
         assistantMessage.content || assistantMessage.reasoning || "";
-      console.log("\nFINAL ANSWER");
-      console.log(finalAnswer);
+      // console.log("\nFINAL ANSWER");
+      // console.log(finalAnswer);
       emit?.({
         flow: "raw",
         type: "final",
@@ -196,9 +219,9 @@ ${ragContext}
     const toolNames = assistantMessage.tool_calls.map(
       (t: any) => t.function?.name,
     );
-    console.log(
-      `MODEL DECIDED TO CALL ${assistantMessage.tool_calls.length} TOOL(S) at Step #${step}: ${toolNames.join(", ")}`,
-    );
+    // console.log(
+    //   `MODEL DECIDED TO CALL ${assistantMessage.tool_calls.length} TOOL(S) at Step #${step}: ${toolNames.join(", ")}`,
+    // );
     emit?.({
       flow: "raw",
       type: "tool_call",
@@ -238,7 +261,7 @@ ${ragContext}
         message: `Tool [${toolName}] đã thực thi xong`,
         data: result,
       });
-
+      // console.log(`Tool [${toolName}] executed with result:`, result);
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -249,7 +272,7 @@ ${ragContext}
     step++;
   }
 
-  console.log("Reached maximum tool calling iterations.");
+  // console.log("Reached maximum tool calling iterations.");
   const lastMsg = messages[messages.length - 1];
   const finalAnswer = lastMsg?.content || "";
   emit?.({
@@ -289,7 +312,8 @@ export async function rawHandler(request: FlowRequest, reply: FastifyReply) {
     const queryParam = request.query?.q || request.query?.question;
     const bodyParam = request.body?.q || request.body?.question;
     const sessionId = request.query?.sessionId || request.body?.sessionId;
-    const userMessage = (queryParam || bodyParam || "").trim() || defaultMessage;
+    const userMessage =
+      (queryParam || bodyParam || "").trim() || defaultMessage;
 
     const emit = createEmitter(sessionId);
     const answer = await runRaw(userMessage, emit);

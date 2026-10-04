@@ -88,7 +88,11 @@ export async function runLangchain(
 ): Promise<string> {
   const query = userMessage.trim() || defaultMessage;
   console.log(`\nUser Question: ${query}\n`);
-  emit?.({ flow: "langchain", type: "info", message: `Bắt đầu xử lý: "${query}"` });
+  emit?.({
+    flow: "langchain",
+    type: "info",
+    message: `Bắt đầu xử lý: "${query}"`,
+  });
 
   const ragContext = `
 Available knowledge base context:
@@ -195,12 +199,16 @@ export type FlowRequest = FastifyRequest<{
   Body: FlowBody;
 }>;
 
-export async function langchainHandler(request: FlowRequest, reply: FastifyReply) {
+export async function langchainHandler(
+  request: FlowRequest,
+  reply: FastifyReply,
+) {
   try {
     const queryParam = request.query?.q || request.query?.question;
     const bodyParam = request.body?.q || request.body?.question;
     const sessionId = request.query?.sessionId || request.body?.sessionId;
-    const userMessage = (queryParam || bodyParam || "").trim() || defaultMessage;
+    const userMessage =
+      (queryParam || bodyParam || "").trim() || defaultMessage;
 
     const emit = createEmitter(sessionId);
     const answer = await runLangchain(userMessage, emit);

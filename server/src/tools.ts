@@ -9,6 +9,8 @@ export interface ToolDefinition {
   description: string;
   schema: z.ZodObject<any>;
   execute: (args: any) => Promise<any>;
+  sampleArgs?: Record<string, any>;
+  sampleOutput?: any;
 }
 
 // ============================================================
@@ -23,12 +25,33 @@ export const tools: ToolDefinition[] = [
     schema: z.object({
       query: z
         .string()
-        .describe("The product search query extracted from the user's request."),
+        .describe(
+          "The product search query extracted from the user's request.",
+        ),
       limit: z
         .number()
         .optional()
         .describe("Maximum number of products to return."),
     }),
+    sampleArgs: { query: "Nike Air Max", limit: 2 },
+    sampleOutput: {
+      products: [
+        {
+          id: "P001",
+          name: "Nike Air Max 270",
+          price: 3200000,
+          currency: "VND",
+          stock: 12,
+        },
+        {
+          id: "P002",
+          name: "Nike Air Force 1",
+          price: 2800000,
+          currency: "VND",
+          stock: 5,
+        },
+      ],
+    },
     execute: async ({ query, limit }) => {
       console.log("EXECUTING TOOL: search_products");
       console.log({ query, limit });
@@ -56,11 +79,22 @@ export const tools: ToolDefinition[] = [
 
   {
     name: "get_order_status",
+
     description:
       "Get the current status of a customer's order when the user asks about an order, shipment, delivery, or order progress.",
+
     schema: z.object({
       order_id: z.string().describe("The customer's order ID."),
     }),
+    sampleArgs: { order_id: "DH-12345" },
+    sampleOutput: {
+      order_id: "DH-12345",
+      status: "shipping",
+      carrier: "DHL",
+      tracking_number: "DHL-VN-987654321",
+      estimated_delivery: "2026-10-04",
+    },
+
     execute: async ({ order_id }) => {
       console.log("EXECUTING TOOL: get_order_status");
       console.log({ order_id });
@@ -69,6 +103,7 @@ export const tools: ToolDefinition[] = [
         order_id,
         status: "shipping",
         carrier: "DHL",
+        tracking_number: "DHL-VN-987654321",
         estimated_delivery: "2026-10-04",
       };
     },
@@ -81,6 +116,16 @@ export const tools: ToolDefinition[] = [
     schema: z.object({
       query: z.string().describe("The web search query."),
     }),
+    sampleArgs: { query: "thời tiết Hà Nội hôm nay" },
+    sampleOutput: {
+      results: [
+        {
+          title: "Example web result",
+          url: "https://example.com",
+          snippet: "Example external information.",
+        },
+      ],
+    },
     execute: async ({ query }) => {
       console.log("EXECUTING TOOL: search_web");
       console.log({ query });
@@ -104,6 +149,11 @@ export const tools: ToolDefinition[] = [
     schema: z.object({
       reason: z.string().describe("Why the user wants human assistance."),
     }),
+    sampleArgs: { reason: "Cần hỗ trợ tư vấn bảo hành đặc biệt" },
+    sampleOutput: {
+      success: true,
+      message: "Conversation has been transferred to a human agent.",
+    },
     execute: async ({ reason }) => {
       console.log("EXECUTING TOOL: contact_human");
       console.log({ reason });
@@ -114,4 +164,60 @@ export const tools: ToolDefinition[] = [
       };
     },
   },
+  {
+    name: "get_shipping_details",
+
+    description:
+      "Get detailed shipping information using the tracking number returned by get_order_status.",
+
+    schema: z.object({
+      tracking_number: z
+        .string()
+        .describe("The tracking number returned by get_order_status."),
+    }),
+    sampleArgs: { tracking_number: "DHL-VN-987654321" },
+    sampleOutput: {
+      tracking_number: "DHL-VN-987654321",
+      current_location: "Hanoi, Vietnam",
+      carrier: "DHL",
+      estimated_delivery: "2026-10-06",
+      last_update: "Package arrived at Hanoi distribution center.",
+    },
+
+    execute: async ({ tracking_number }) => {
+      console.log("EXECUTING TOOL: get_shipping_details");
+      console.log({ tracking_number });
+
+      return {
+        tracking_number,
+        current_location: "Hanoi, Vietnam",
+        carrier: "DHL",
+        estimated_delivery: "2026-10-06",
+        last_update: "Package arrived at Hanoi distribution center.",
+      };
+    },
+  },
 ];
+
+export function getToolsOverview() {
+  return tools.map((t) => {
+    const jsonSchema = z.toJSONSchema(t.schema) as any;
+    const properties = jsonSchema.properties || {};
+    const requiredList = Array.isArray(jsonSchema.required) ? jsonSchema.required : [];
+    const parameters = Object.entries(properties).map(([name, prop]: [string, any]) => ({
+      name,
+      type: prop.type || "any",
+      description: prop.description || "",
+      required: requiredList.includes(name),
+    }));
+
+    return {
+      name: t.name,
+      description: t.description,
+      parameters,
+      schema: jsonSchema,
+      sampleArgs: t.sampleArgs,
+      output: t.sampleOutput,
+    };
+  });
+}
